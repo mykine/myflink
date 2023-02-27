@@ -1,13 +1,17 @@
 package cn.mykine;
 
+import cn.mykine.apitest.bean.SensorReading;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
@@ -56,10 +60,32 @@ public class FlinkKafka {
                         })
                         .map(new MyMap()).setParallelism(2);
 
-        //sink-输出结果
-        resultFlatMap.print("flatMap");
-        resultMap.print("map");
 
+        DataStream<SensorReading> dataStream = receiveStreamData.map(new MapFunction<String, SensorReading>() {
+            @Override
+            public SensorReading map(String value) throws Exception {
+                String[] valueArr = value.split(",");
+                return new SensorReading(valueArr[0],
+                        Long.valueOf(valueArr[1]),
+                        Double.valueOf(valueArr[2]));
+            }
+        });
+
+        DataStream<SensorReading> dataStream2 = receiveStreamData.map(value->{
+            String[] valueArr = value.split(",");
+            return new SensorReading(valueArr[0],
+                    Long.valueOf(valueArr[1]),
+                    Double.valueOf(valueArr[2]));
+        });
+
+        KeyedStream<SensorReading, Tuple> keyedStream = dataStream2.keyBy("id");
+        DataStream<SensorReading> temperatureMax = keyedStream.maxBy("temperature");
+
+        //sink-输出结果
+//        resultFlatMap.print("flatMap");
+//        resultMap.print("map");
+        temperatureMax.print("temperatureMax");
+//        dataStream2.print("dataStream2");
         //执行
         env.execute();
 
@@ -69,7 +95,7 @@ public class FlinkKafka {
 
         @Override
         public String map(String value) throws Exception {
-            String[] words = value.split(" ");
+            String[] words = value.split(",");
             return words[0]+"的温度是"+words[2];
         }
     }
@@ -78,7 +104,7 @@ public class FlinkKafka {
 
         @Override
         public void flatMap(String value, Collector<Tuple2<String, String>> out) throws Exception {
-            String[] words = value.split(" ");
+            String[] words = value.split(",");
 
             out.collect(new Tuple2<>(words[0],words[2]));
         }
