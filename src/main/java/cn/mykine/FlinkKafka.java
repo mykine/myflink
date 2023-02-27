@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -80,11 +81,23 @@ public class FlinkKafka {
 
         KeyedStream<SensorReading, Tuple> keyedStream = dataStream2.keyBy("id");
         DataStream<SensorReading> temperatureMax = keyedStream.maxBy("temperature");
-
+        //reduce算子可以让当前数据与上一次聚合计算的结果进行比较操作，构造出想要的结果数据值
+        DataStream<SensorReading> reduceResult = keyedStream.reduce(new ReduceFunction<SensorReading>() {
+            @Override
+            public SensorReading reduce(SensorReading curentMax, SensorReading newValue) throws Exception {
+                SensorReading result = new SensorReading(
+                        curentMax.getId(),
+                        newValue.getTimestamp(),
+                        curentMax.getTemperature()>newValue.getTemperature() ? curentMax.getTemperature() : newValue.getTemperature()
+                );
+                return result;
+            }
+        });
         //sink-输出结果
 //        resultFlatMap.print("flatMap");
 //        resultMap.print("map");
         temperatureMax.print("temperatureMax");
+        reduceResult.print("reduceResult");
 //        dataStream2.print("dataStream2");
         //执行
         env.execute();
