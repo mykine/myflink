@@ -1,7 +1,9 @@
 package cn.mykine;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -40,16 +42,36 @@ public class FlinkKafka {
 
 
         //transformation-基于流数据进行转换计算
-        SingleOutputStreamOperator<Tuple2<String, String>> result = receiveStreamData
+        SingleOutputStreamOperator<Tuple2<String, String>> resultFlatMap = receiveStreamData
                 .flatMap(new MyFlatMap())
                 .setParallelism(2);
 
+        SingleOutputStreamOperator<String> resultMap =
+                receiveStreamData
+                        .filter(new FilterFunction<String>() {
+                            @Override
+                            public boolean filter(String value) throws Exception {
+                                return value.toLowerCase().startsWith("cpu");
+                            }
+                        })
+                        .map(new MyMap()).setParallelism(2);
+
         //sink-输出结果
-        result.print();
+        resultFlatMap.print("flatMap");
+        resultMap.print("map");
 
         //执行
         env.execute();
 
+    }
+
+    public static class MyMap implements MapFunction<String,String>{
+
+        @Override
+        public String map(String value) throws Exception {
+            String[] words = value.split(" ");
+            return words[0]+"的温度是"+words[2];
+        }
     }
 
     public static class MyFlatMap implements FlatMapFunction<String, Tuple2<String,String>>{
