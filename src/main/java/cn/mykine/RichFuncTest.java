@@ -5,11 +5,13 @@ import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.collector.selector.OutputSelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
@@ -47,8 +49,19 @@ public class RichFuncTest {
 
         //transformation-基于流数据进行转换计算
         DataStream<SensorReading> dataStream = receiveStreamData.map(new MyRichMap());
+
+        //数据重分区(即前一个算子的结果放到哪一个分区进行下一步算子操作)-方式
+        DataStream<SensorReading> rebalanceDataStream = dataStream.rebalance();//轮询分区（默认的方式）
+        DataStream<SensorReading> shuffleDataStream = dataStream.shuffle();//随机分区
+        DataStream<SensorReading> globalDataStream = dataStream.global();//统一放到第一个分区
+        KeyedStream<SensorReading, Tuple> keyByDataStream = dataStream.keyBy("id");//按照key进行hash取模计算出分区
+
         //sink-输出结果
         dataStream.print("dataStream");
+        rebalanceDataStream.print("rebalanceDataStream");
+        shuffleDataStream.print("shuffleDataStream");
+        globalDataStream.print("globalDataStream");
+        keyByDataStream.print("keyByDataStream");
 
         //执行
         env.execute();
