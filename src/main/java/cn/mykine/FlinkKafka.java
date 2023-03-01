@@ -9,16 +9,18 @@ import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
-import org.apache.flink.streaming.api.datastream.KeyedStream;
-import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.collector.selector.OutputSelector;
+import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.co.CoMapFunction;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer011;
 import org.apache.flink.streaming.connectors.kafka.Kafka011TableSource;
 import org.apache.flink.util.Collector;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Properties;
 
 public class FlinkKafka {
@@ -93,12 +95,54 @@ public class FlinkKafka {
                 return result;
             }
         });
+
+        //分流操作split，给流数据打标签
+        SplitStream<SensorReading> splitStream =
+                dataStream2.split(new OutputSelector<SensorReading>() {
+            @Override
+            public Iterable<String> select(SensorReading value) {
+                return value.getTemperature() > 30 ? Collections.singletonList("high") : Collections.singletonList("low");
+            }
+        });
+
+        //合流操作connect-只能合并两条流，数据类型可以不同
+        DataStream<Tuple2<String,Double>> highWarnDataStream =
+                splitStream.select("high")
+                .map(new MapFunction<SensorReading, Tuple2<String, Double>>() {
+                    @Override
+                    public Tuple2<String, Double> map(SensorReading value) throws Exception {
+                       return new Tuple2<>(value.getId(),value.getTemperature());
+                    }
+                });
+        //两个不同类型的流合并到一个流中
+        ConnectedStreams<Tuple2<String, Double>, SensorReading> connectedDataStream =
+                highWarnDataStream.connect(splitStream.select("low"));
+        //对合并流中的各个流数据提炼成同一种数据类型，方便后续操作
+        DataStream<Object> resultConnectDataStream =
+                connectedDataStream.map(new CoMapFunction<Tuple2<String, Double>, SensorReading, Object>() {
+            @Override
+            public Object map1(Tuple2<String, Double> value1) throws Exception {
+                return new Tuple3<>(value1.f0, value1.f1, "高温报警");
+            }
+
+            @Override
+            public Object map2(SensorReading value2) throws Exception {
+                return new Tuple2<>(value2.getId(), "温度正常");
+            }
+        });
+
         //sink-输出结果
+        splitStream.select("high").print("high");
+        splitStream.select("low").print("low");
+        splitStream.select("high","low").print("all");
+        resultConnectDataStream.print("合流后处理的数据");
+
 //        resultFlatMap.print("flatMap");
 //        resultMap.print("map");
-        temperatureMax.print("temperatureMax");
-        reduceResult.print("reduceResult");
+//        temperatureMax.print("temperatureMax");
+//        reduceResult.print("reduceResult");
 //        dataStream2.print("dataStream2");
+
         //执行
         env.execute();
 
