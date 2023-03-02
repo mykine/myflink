@@ -96,52 +96,54 @@ public class FlinkWindowTest {
 //                    }
 //                });
 
-        //滚动时间窗口-全窗口聚合函数操作-每隔10秒统计这一窗口内所有数目
-       DataStream windowResult2 = dataStream.keyBy("id")
-                .timeWindow(Time.seconds(10))
-                .apply(new WindowFunction<SensorReading, Tuple3<String, String, Integer>, Tuple, TimeWindow>() {
-                    @Override
-                    public void apply(Tuple tuple, TimeWindow window, Iterable<SensorReading> input, Collector<Tuple3<String, String, Integer>> out) throws Exception {
-                        String id = tuple.getField(0);
-                        String thisEndTime =  new SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(window.getEnd());
-                        List list = IteratorUtils.toList(input.iterator());
-                        Integer count = list.size();
-//                        BigDecimal sum = BigDecimal.ZERO;
-//                        while(input.iterator().hasNext()){
-//                            SensorReading item = input.iterator().next();
-//                            sum.add(BigDecimal.valueOf(item.getTemperature()));
-//                        }
-//                        System.out.println("sum="+sum+",count="+count);
-//                        BigDecimal avg = sum.divide(BigDecimal.valueOf(count),2, RoundingMode.HALF_UP);
-                        out.collect(new Tuple3<>(id, thisEndTime, count));
-                    }
-                });
+//        //滚动时间窗口-全窗口聚合函数操作-每隔10秒统计这一窗口内所有数目
+//       DataStream windowResult2 = dataStream.keyBy("id")
+//                .timeWindow(Time.seconds(10))
+//                .apply(new WindowFunction<SensorReading, Tuple3<String, String, Integer>, Tuple, TimeWindow>() {
+//                    @Override
+//                    public void apply(Tuple tuple, TimeWindow window, Iterable<SensorReading> input, Collector<Tuple3<String, String, Integer>> out) throws Exception {
+//                        String id = tuple.getField(0);
+//                        String thisEndTime =  new SimpleDateFormat("yyyy-MM-dd HH-mm-ss").format(window.getEnd());
+//                        List list = IteratorUtils.toList(input.iterator());
+//                        Integer count = list.size();
+//                        out.collect(new Tuple3<>(id, thisEndTime, count));
+//                    }
+//                });
+
+        //滑动计数窗口-增量聚合操作-统计最近5个数的平均值
+        DataStream windowResult3 = dataStream.keyBy("id")
+                .countWindow(10,2)
+                        .aggregate(new MyCountWinFunc());
 
 
         //sink-输出结果
-        windowResult2.print("windowResult2");
+        windowResult3.print("windowResult3");
 
         //执行
         env.execute();
 
     }
 
-    public static class MyMap implements MapFunction<String,String>{
+    public static class MyCountWinFunc implements AggregateFunction<SensorReading, Tuple2<Double, Integer>, Double>{
 
         @Override
-        public String map(String value) throws Exception {
-            String[] words = value.split(",");
-            return words[0]+"的温度是"+words[2];
+        public Tuple2<Double, Integer> createAccumulator() {
+            return new Tuple2<>(0.0,0);
         }
-    }
-
-    public static class MyFlatMap implements FlatMapFunction<String, Tuple2<String,String>>{
 
         @Override
-        public void flatMap(String value, Collector<Tuple2<String, String>> out) throws Exception {
-            String[] words = value.split(",");
+        public Tuple2<Double, Integer> add(SensorReading value, Tuple2<Double, Integer> accumulator) {
+            return new Tuple2<>(accumulator.f0+value.getTemperature(),accumulator.f1+1);
+        }
 
-            out.collect(new Tuple2<>(words[0],words[2]));
+        @Override
+        public Double getResult(Tuple2<Double, Integer> accumulator) {
+            return accumulator.f0 / accumulator.f1;
+        }
+
+        @Override
+        public Tuple2<Double, Integer> merge(Tuple2<Double, Integer> a, Tuple2<Double, Integer> b) {
+            return new Tuple2<>(a.f0+b.f0,a.f1+b.f1);
         }
     }
 }
