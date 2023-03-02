@@ -14,7 +14,7 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer011;
 
 import java.util.Properties;
 
-public class SinkTest {
+public class SinkKafka {
 
     public static void main(String[] args) throws Exception {
         //env-创建执行环境
