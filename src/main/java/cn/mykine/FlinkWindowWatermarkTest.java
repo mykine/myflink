@@ -60,6 +60,7 @@ public class FlinkWindowWatermarkTest {
 
         //附加了水印数据设置-滑动计数窗口-增量聚合操作-统计最近5个数的平均值
         DataStream windowResult3 = dataStream
+                // 乱序数据设置时间戳和watermark
                 .assignTimestampsAndWatermarks(
                         new BoundedOutOfOrdernessTimestampExtractor<SensorReading>(Time.seconds(2))
                 {
